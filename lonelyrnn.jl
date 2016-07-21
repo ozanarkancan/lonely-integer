@@ -1,5 +1,5 @@
-using CUDArt
-CUDArt.device(2)
+using GPUChecker, CUDArt
+CUDArt.device(first_min_used_gpu())
 
 using Knet,JLD, ArgParse
 
@@ -7,6 +7,15 @@ using Knet,JLD, ArgParse
 	h = lstm(x; out=hidden)
 	if predict
 		return wbf(h; out=out, f=:soft)
+	end
+end
+
+@knet function birnn(fx, bx; hidden=128, out=100)
+	fh = lstm(fx; out=hidden)
+	bh = lstm(bx; out=hidden)
+
+	if predict
+		return wbf2(fh, bh; out=out, f=:soft)
 	end
 end
 
@@ -38,8 +47,8 @@ function task(net; N=1024, seqlength=11, limit=100)
 	for n=1:N
 		seq, ygold = gendata(;seqlength=seqlength, limit=limit)
 
-		for i=1:(length(seq)-1); sforw(net, seq[i]); end
-		ypred = sforw(net, seq[end]; predict = true)
+		for i=1:(length(seq)-1); sforw(net, seq[i], seq[end-(i-1)]); end
+		ypred = sforw(net, seq[end], seq[1]; predict = true)
 		
 		sloss = softloss(ypred, ygold)
 		zloss = zeroone(ypred, ygold)
@@ -60,8 +69,8 @@ function test(net; N=1000, seqlength=11, limit=100)
 	acc = 0
 	for i=1:N
 		seq, ygold = gendata(;seqlength=seqlength, limit=limit)
-		for i=1:(length(seq)-1); forw(net, seq[i]); end
-		ypred = forw(net, seq[end]; predict = true)
+		for i=1:(length(seq)-1); forw(net, seq[i], seq[end-(i-1)]); end
+		ypred = forw(net, seq[end], seq[i]; predict = true)
 		acc += (1 - zeroone(ypred, ygold))
 		reset!(net)
 	end
@@ -109,7 +118,7 @@ function main()
 		println("$k -> $(args[k])")
 	end
 
-	net = compile(:rnn, hidden=args["hidden"])
+	net = compile(:birnn, hidden=args["hidden"])
 
 	setp(net, adam=true, lr=args["lr"])
 
