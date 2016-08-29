@@ -3,6 +3,8 @@ CUDArt.device(first_min_used_gpu())
 
 using Knet,JLD, ArgParse
 
+Knet.gpu(false)
+
 @knet function rnn(x; hidden=128, out=100)
 	h = lstm(x; out=hidden)
 	if predict
@@ -19,14 +21,15 @@ end
 	end
 end
 
-function gendata(;seqlength=11, limit=100)
+function gendata(;seqlength=5, limit=20)
 	rnums = randperm(limit)
-	seq = rnums[1:(seqlength-1)]
-	append!(seq, rnums[1:(seqlength-1)])
-	push!(seq, rnums[seqlength])
+	dup = round(Int32, (seqlength - 1) / 2)
+	seq = rnums[1:dup]
+	append!(seq, rnums[1:dup])
+	push!(seq, rnums[dup+1])
 
 	function onehot(indx)
-		rep = zeros(Float64, limit, 1)
+		rep = zeros(Float32, limit, 1)
 		rep[indx, 1] = 1.0
 		return rep
 	end
@@ -36,7 +39,6 @@ function gendata(;seqlength=11, limit=100)
 	shuffle!(onehotseq)
 	return (onehotseq, y)
 end
-
 
 function task(net; N=1024, seqlength=11, limit=100)
 	@assert (seqlength % 2) == 1
@@ -64,6 +66,20 @@ function task(net; N=1024, seqlength=11, limit=100)
 		reset!(net)
 	end
 end
+
+function timing(net; N=1024, seqlength=11, limit=100)
+	seq, ygold = gendata(;seqlength=seqlength, limit=limit)
+
+	for i=1:(length(seq)-1); sforw(net, seq[i]); end
+	ypred = sforw(net, seq[end]; predict = true)
+
+	sback(net, ygold, softloss)
+	for i=1:(length(seq)-1); sback(net); end
+
+	update!(net; gclip=10.0)
+	reset!(net)
+end
+
 
 function test(net; N=1000, seqlength=11, limit=100)
 	acc = 0
@@ -134,4 +150,21 @@ function main()
 	end
 end
 
-main()
+function timing_main()
+	args = parse_commandline()
+	println("*** Params ***")
+	for k in keys(args)
+		println("$k -> $(args[k])")
+	end
+
+	net = compile(:rnn, hidden=args["hidden"], out=args["limit"])
+
+	setp(net, adam=true, lr=args["lr"])
+
+	for i=1:10
+		@time timing(net; N=args["N"], seqlength=args["seqlength"], limit=args["limit"])
+	end
+end
+
+#main()
+timing_main()
