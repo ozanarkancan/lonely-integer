@@ -3,7 +3,7 @@ CUDArt.device(first_min_used_gpu())
 
 using Knet,JLD, ArgParse
 
-Knet.gpu(false)
+#Knet.gpu(false)
 
 @knet function rnn(x; hidden=128, out=100)
 	h = lstm(x; out=hidden)
